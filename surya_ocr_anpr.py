@@ -133,6 +133,9 @@ def img_detect_save(input_file_):
     license_plate_model_path = os.path.join(current_dir, 'license_plate_model.pt')
     output_dir = os.path.join(current_dir, 'output_images')
 
+    # Create the output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
     car_model = load_model(car_detect_model_)
     license_plate_model = load_model(license_plate_model_path)
     img = load_image(input_file)
