@@ -171,7 +171,7 @@ def main(video_path):
 
     extract_frames_from_video(video_path, extracted_frames_folder, interval=1)
     frame_folder_detect_save(extracted_frames_folder, result_frames_folder)
-    create_video_from_images(result_frames_folder, "detected_traffic.mp4", fps=1, size=(1920, 1080))
+    create_video_from_images(result_frames_folder, "detected_video.mp4", fps=1, size=(1920, 1080))
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
