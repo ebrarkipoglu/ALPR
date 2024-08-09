@@ -35,7 +35,7 @@ pip install surya-ocr
 Execute the following command.
 
 ```shell
-python img_anpr_detector.py "C:\path\to\your\image\image_name.png"
+python surya_ocr_anpr.py "C:\path\to\your\image\image_name.png"
 ```
 **Result:**
 The results have been saved in the folder named *output_images*
