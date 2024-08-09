@@ -1,0 +1,150 @@
+import sys
+from ultralytics import YOLO
+import cv2
+import easyocr
+import os
+import pytesseract
+
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract'
+
+
+def load_image(image_path):
+
+    return cv2.imread(image_path)
+
+def load_model(model_path):
+
+    return YOLO(model_path)
+
+def detect_vehicles(model, image, class_id=2, confidence_threshold=0.5):
+    results = model(image)
+    detections = []
+
+    for result in results:
+        for detection in result.boxes:
+            xyxy = detection.xyxy
+            conf = detection.conf
+            cls = detection.cls
+            x1, y1, x2, y2 = xyxy[0].tolist()
+            confidence = conf[0].item()
+            detected_class_id = cls[0].item()
+
+            # Consider detections with the specified class ID and confidence above the threshold
+            if detected_class_id == class_id and confidence > confidence_threshold:
+                # print(f"Vehicle detected: x1={x1}, y1={y1}, x2={x2}, y2={y2}, conf={confidence:.4f}")
+
+                # Crop the vehicle image
+                vehicle_img = image[int(y1):int(y2), int(x1):int(x2)].copy()
+                detections.append({
+                    'bbox': (x1, y1, x2, y2),
+                    'confidence': confidence,
+                    'vehicle_img': vehicle_img
+                })
+
+    return detections
+def filter_plate_number(plate_number):
+
+    filtered_plate_number = ''.join(char for char in plate_number if char.isalnum())
+    return filtered_plate_number
+
+def scan_plate(image):
+    custom_config = r'-c tessedit_char_blacklist=abcdefghijklmnopqrstuvwxyz/ --psm 7'
+    plate_number = (pytesseract.image_to_string(image, config=custom_config))
+
+    plate_number = plate_number.strip()
+
+    plate_number = filter_plate_number(plate_number)
+
+    return plate_number
+
+def extract_plate_text(model, vehicle_img, vehicle_bbox):
+    """Extract text from detected license plates using EasyOCR."""
+    results = model(vehicle_img)
+    reader = easyocr.Reader(['en'])
+    vehicle_data = {
+        'vehicle_bbox': vehicle_bbox,
+        'plates': []
+    }
+
+    for result in results:
+        boxes = result.boxes
+        for box in boxes:
+            x1, y1, x2, y2 = box.xyxy[0]
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+
+            # Crop the plate region from the image
+            plate_crop = vehicle_img[y1:y2, x1:x2].copy()
+
+            # Preprocess the cropped plate image
+            plate_crop_gray = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2GRAY)
+            _, plate_crop_thresh = cv2.threshold(plate_crop_gray, 64, 255, cv2.THRESH_BINARY_INV)
+
+            plate_text = scan_plate(plate_crop_thresh)
+
+            # Store plate data
+            vehicle_data['plates'].append({
+                'plate_bbox': (x1, y1, x2, y2),
+                'plate_text': plate_text
+            })
+
+            # print("Licence plate:", plate_text)
+
+    return vehicle_data
+
+def draw_and_save(image_path, vehicle_data_list, save_dir):
+    """Draw plate information on the image and save the modified image."""
+    image = load_image(image_path)
+    save_path = os.path.join(save_dir, f"output_image_tesseract.jpg")
+
+    for vehicle in vehicle_data_list:
+        vehicle_bbox = vehicle['vehicle_bbox']
+        for plate in vehicle['plates']:
+            plate_bbox = plate['plate_bbox']
+            plate_text = plate['plate_text']
+
+            full_img_x1 = int(vehicle_bbox[0] + plate_bbox[0])
+            full_img_y1 = int(vehicle_bbox[1] + plate_bbox[1])
+            full_img_x2 = int(vehicle_bbox[0] + plate_bbox[2])
+            full_img_y2 = int(vehicle_bbox[1] + plate_bbox[3])
+
+            # Draw rectangle around the plate
+            cv2.rectangle(image, (full_img_x1, full_img_y1), (full_img_x2, full_img_y2),
+                          (0, 255, 0), 2)
+            cv2.putText(image, plate_text, (full_img_x1, full_img_y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        (0, 255, 0), 2)
+
+    # Save the modified image
+    cv2.imwrite(save_path, image)
+
+def img_detect_save(input_file_):
+    current_dir = os.path.dirname(__file__)
+    input_file = input_file_
+    car_detect_model_ = os.path.join(current_dir, 'yolov8n.pt')
+    license_plate_model_path = os.path.join(current_dir, 'license_plate_model.pt')
+    output_dir = os.path.join(current_dir, 'output_images')
+
+    car_model = load_model(car_detect_model_)
+    license_plate_model = load_model(license_plate_model_path)
+    img = load_image(input_file)
+
+    vehicle_detections = detect_vehicles(car_model, img)
+    detected_vehicles_data = []  # List to store all vehicle data
+
+    for i, detection in enumerate(vehicle_detections):
+        vehicle_img = detection['vehicle_img']
+
+        if detection['confidence'] >= 0.8:
+            vehicle_data = extract_plate_text(license_plate_model, vehicle_img, detection['bbox'])
+            detected_vehicles_data.append(vehicle_data)
+
+    draw_and_save(input_file, detected_vehicles_data, output_dir)
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: python script_name.py image_path")
+    else:
+        input_file = sys.argv[1]
+        img_detect_save(input_file)
+
+if __name__ == "__main__":
+    main()
